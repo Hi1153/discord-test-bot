@@ -3,15 +3,15 @@ const {
   GatewayIntentBits,
   REST,
   Routes,
-  SlashCommandBuilder
+  SlashCommandBuilder,
+  ChannelType
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID;
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID) {
-  console.error("環境変数が設定されていません。");
+if (!TOKEN || !CLIENT_ID) {
+  console.error("DISCORD_TOKEN / CLIENT_ID が設定されていません。");
   process.exit(1);
 }
 
@@ -22,6 +22,13 @@ const client = new Client({
 const command = new SlashCommandBuilder()
   .setName("test")
   .setDescription("Botの耐久テストを実行します")
+  .addChannelOption(option =>
+    option
+      .setName("channel")
+      .setDescription("テストメッセージを送信するチャンネル")
+      .addChannelTypes(ChannelType.GuildText)
+      .setRequired(true)
+  )
   .addIntegerOption(option =>
     option
       .setName("count")
@@ -35,17 +42,18 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 async function registerCommand() {
   await rest.put(
-    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    Routes.applicationCommands(CLIENT_ID),
     {
       body: [command.toJSON()]
     }
   );
 
-  console.log("スラッシュコマンドを登録しました。");
+  console.log("グローバルスラッシュコマンドを登録しました。");
 }
 
 client.once("ready", () => {
   console.log(`ログインしました: ${client.user.tag}`);
+  console.log(`参加サーバー数: ${client.guilds.cache.size}`);
 });
 
 client.on("interactionCreate", async interaction => {
@@ -59,11 +67,23 @@ client.on("interactionCreate", async interaction => {
     });
   }
 
+  const channel = interaction.options.getChannel("channel");
   const count = interaction.options.getInteger("count");
 
-  await interaction.reply(
-    `🧪 耐久テスト開始\n回数: ${count}\n間隔: 2秒`
-  );
+  if (!channel || channel.type !== ChannelType.GuildText) {
+    return interaction.reply({
+      content: "テキストチャンネルを指定してください。",
+      ephemeral: true
+    });
+  }
+
+  await interaction.reply({
+    content:
+      `耐久テスト開始\n` +
+      `送信先: ${channel}\n` +
+      `回数: ${count}\n` +
+      `間隔: 2秒`
+  });
 
   let success = 0;
   let failed = 0;
@@ -73,17 +93,23 @@ client.on("interactionCreate", async interaction => {
     const start = Date.now();
 
     try {
-      await interaction.channel.send(`🧪 テスト ${i}/${count}`);
+      await channel.send(`テスト ${i}/${count}`);
 
       const elapsed = Date.now() - start;
 
       success++;
       totalTime += elapsed;
 
-      console.log(`[${i}/${count}] 成功 ${elapsed}ms`);
+      console.log(
+        `[${interaction.guild.name}] [${i}/${count}] 成功 ${elapsed}ms`
+      );
     } catch (error) {
       failed++;
-      console.error(`[${i}/${count}] 失敗:`, error.message);
+
+      console.error(
+        `[${interaction.guild.name}] [${i}/${count}] 失敗:`,
+        error.message
+      );
     }
 
     if (i < count) {
@@ -98,7 +124,9 @@ client.on("interactionCreate", async interaction => {
 
   await interaction.followUp(
     [
-      "## 🧪 耐久テスト終了",
+      "耐久テスト終了",
+      "",
+      `送信先: ${channel}`,
       `実行回数: ${count}`,
       `成功: ${success}`,
       `失敗: ${failed}`,
