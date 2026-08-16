@@ -1,4 +1,4 @@
-name: Discord Bot
+name: Load Tester Bot
 
 on:
   workflow_dispatch:
